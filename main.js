@@ -155,6 +155,8 @@ class Game {
 
     teardown3D() {
         if (this.three.renderer) {
+            // Force the WebGL context to be lost
+            this.three.renderer.forceContextLoss();
             this.three.renderer.dispose();
             this.three.renderer = null;
         }
@@ -165,11 +167,8 @@ class Game {
         this.three.textures.forEach(t => t.dispose());
         this.three.textures.clear();
 
-        // Workaround to release WebGL context. Create a new canvas.
-        const newCanvas = this.canvas.cloneNode(true);
-        this.gameContainer.replaceChild(newCanvas, this.canvas);
-        this.canvas = newCanvas;
-        this.canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
+        // No longer replacing the canvas element. 
+        // We will reuse the same canvas for 2D rendering.
     }
 
     preloadGifs() {
