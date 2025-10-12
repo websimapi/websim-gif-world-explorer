@@ -13,10 +13,17 @@ body {
     height: 100%;
 }
 
-#game-canvas {
+#game-canvas, #game-canvas-2d, #game-canvas-3d {
     display: block;
     width: 100%;
     height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+#game-canvas.hidden, #game-canvas-2d.hidden, #game-canvas-3d.hidden {
+    display: none;
 }
 
 #ui-container {
