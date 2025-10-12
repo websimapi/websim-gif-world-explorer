@@ -118,7 +118,8 @@ class Game {
         // Scene
         this.three.scene = new THREE.Scene();
         this.three.scene.background = new THREE.Color(0x87ceeb);
-        this.three.scene.fog = new THREE.Fog(0x87ceeb, 0, CHUNK_SIZE * RENDER_DISTANCE * 0.8);
+        // Adjust fog to be less dense
+        this.three.scene.fog = new THREE.Fog(0x87ceeb, CHUNK_SIZE, CHUNK_SIZE * (RENDER_DISTANCE + 1.5));
 
         // Camera
         this.three.camera = new THREE.PerspectiveCamera(75, this.gameContainer.clientWidth / this.gameContainer.clientHeight, 0.1, 5000);
@@ -131,8 +132,32 @@ class Game {
         this.three.scene.add(directionalLight);
         
         // Ground
-        const groundGeometry = new THREE.PlaneGeometry(1, 1);
-        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x4caf50 });
+        const groundSize = CHUNK_SIZE * (RENDER_DISTANCE * 2 + 1);
+        const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+        
+        // Create a texture with a grid pattern for the ground
+        const gridCanvas = document.createElement('canvas');
+        const gridContext = gridCanvas.getContext('2d');
+        const canvasSize = 256;
+        gridCanvas.width = gridCanvas.height = canvasSize;
+        gridContext.fillStyle = '#4caf50';
+        gridContext.fillRect(0, 0, canvasSize, canvasSize);
+        gridContext.strokeStyle = 'rgba(0,0,0,0.1)';
+        gridContext.lineWidth = 2;
+        gridContext.beginPath();
+        gridContext.moveTo(0, canvasSize);
+        gridContext.lineTo(canvasSize, canvasSize);
+        gridContext.lineTo(canvasSize, 0);
+        gridContext.stroke();
+
+        const groundTexture = new THREE.CanvasTexture(gridCanvas);
+        groundTexture.wrapS = THREE.RepeatWrapping;
+        groundTexture.wrapT = THREE.RepeatWrapping;
+        const textureRepeat = groundSize / CHUNK_SIZE;
+        groundTexture.repeat.set(textureRepeat, textureRepeat);
+
+        const groundMaterial = new THREE.MeshLambertMaterial({ map: groundTexture });
+        
         this.three.ground = new THREE.Mesh(groundGeometry, groundMaterial);
         this.three.ground.rotation.x = -Math.PI / 2;
         this.three.scene.add(this.three.ground);
@@ -434,10 +459,11 @@ class Game {
             sprite.position.set(obj.x, SPRITE_SIZE / 2, obj.y);
         });
         
-        // Update ground
-        const worldSize = CHUNK_SIZE * (RENDER_DISTANCE * 2 + 1);
-        this.three.ground.scale.set(worldSize, worldSize, 1);
-        this.three.ground.position.set(this.player.x, 0, this.player.y);
+        // Update ground position to align with world chunks
+        const playerChunkCoords = this.getChunkCoords(this.player);
+        const groundCenterX = (playerChunkCoords.x + 0.5) * CHUNK_SIZE;
+        const groundCenterZ = (playerChunkCoords.y + 0.5) * CHUNK_SIZE;
+        this.three.ground.position.set(groundCenterX, 0, groundCenterZ);
 
         // Update camera
         const camDist = 500;
