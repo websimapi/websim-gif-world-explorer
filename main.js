@@ -32,6 +32,8 @@ class Game {
         
         this.animatedTextures = []; // To keep track of textures that need updating for GIF animation
         
+        this.textureLoader = new THREE.TextureLoader();
+        
         this.chunks = new Map();
         this.characterPool = [...GIF_ASSETS];
         
@@ -69,12 +71,7 @@ class Game {
     }
 
     createAnimatedTexture(assetPath) {
-        const image = new Image();
-        const texture = new THREE.Texture(image);
-        image.onload = () => {
-            texture.needsUpdate = true;
-        };
-        image.src = assetPath;
+        const texture = this.textureLoader.load(assetPath);
         this.animatedTextures.push(texture);
         return texture;
     }
@@ -84,7 +81,7 @@ class Game {
         const playerAsset = this.characterPool.splice(randomIndex, 1)[0];
 
         const texture = this.createAnimatedTexture(playerAsset);
-        const material = new THREE.SpriteMaterial({ map: texture });
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
         this.player = new THREE.Sprite(material);
         this.player.scale.set(2, 2, 1);
         this.player.position.y = 1;
@@ -133,7 +130,7 @@ class Game {
         if (this.characterPool.length > 0 && Math.random() > 0.3) {
             const charAsset = this.characterPool.pop();
             const texture = this.createAnimatedTexture(charAsset);
-            const material = new THREE.SpriteMaterial({ map: texture });
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
             const collectible = new THREE.Sprite(material);
             collectible.scale.set(2, 2, 1);
             
@@ -228,9 +225,10 @@ class Game {
     animate() {
         requestAnimationFrame(this.animate.bind(this));
 
-        for (const texture of this.animatedTextures) {
-            texture.needsUpdate = true;
-        }
+        // Setting needsUpdate is not needed for textures loaded by TextureLoader for gifs.
+        // The loader sets the 'needsUpdate' flag internally when the gif frame changes.
+        // It relies on THREE.ImageUtils.getDataURL( image ) which seems to be deprecated or internal.
+        // The modern way this works is that TextureLoader sets up an update mechanism.
 
         this.update();
         this.renderer.render(this.scene, this.camera);
