@@ -72,24 +72,17 @@ class Game {
         return new Promise((resolve) => {
             const image = new Image();
             image.crossOrigin = 'anonymous';
-            
             image.onload = () => {
+                const holder = document.getElementById('gif-sources');
+                holder && holder.appendChild(image); // keep GIF in DOM so it animates
                 const canvas = document.createElement('canvas');
-                canvas.width = image.width;
-                canvas.height = image.height;
+                canvas.width = image.width; canvas.height = image.height;
                 const context = canvas.getContext('2d');
-                
-                context.drawImage(image, 0, 0);
-                
                 const texture = new THREE.CanvasTexture(canvas);
-                texture.minFilter = THREE.LinearFilter;
-                texture.magFilter = THREE.LinearFilter;
-                
+                texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter;
                 this.animatedTextures.push({ texture, canvas, context, image });
-                
                 resolve(texture);
             };
-            
             image.src = assetPath;
         });
     }
@@ -215,9 +208,10 @@ class Game {
     
     updateAnimatedTextures() {
         for (const animData of this.animatedTextures) {
-            animData.context.clearRect(0, 0, animData.canvas.width, animData.canvas.height);
-            animData.context.drawImage(animData.image, 0, 0);
-            animData.texture.needsUpdate = true;
+            const { context, canvas, image, texture } = animData;
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            texture.needsUpdate = true;
         }
     }
     
