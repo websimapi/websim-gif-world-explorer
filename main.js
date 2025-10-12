@@ -1,5 +1,3 @@
-import * as THREE from 'three';
-
 const GIF_ASSETS = [
     '/asset_33 (2).gif', '/asset_24 (2).gif', '/asset_8.gif', '/asset_31.gif', '/asset_42.gif',
     '/asset_35 (1).gif', '/asset_0.gif', '/asset_22 (2).gif', '/asset_13 (1).gif', '/asset_25 (1).gif',
@@ -12,224 +10,173 @@ const GIF_ASSETS = [
     '/asset_19.gif', '/asset_16 (1).gif', '/asset_5.gif', '/asset_1.gif'
 ];
 
-const CHUNK_SIZE = 50;
-const RENDER_DISTANCE = 2; // in chunks
-const PLAYER_SPEED = 5;
-const COLLECT_DISTANCE = 2.5;
+const CHUNK_SIZE = 1000; // World pixels
+const RENDER_DISTANCE = 1; // in chunks
+const PLAYER_SPEED = 250; // pixels per second
+const COLLECT_DISTANCE = 60; // pixels
+const SPRITE_SIZE = 100; // pixels
 
 class Game {
     constructor() {
-        this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.clock = new THREE.Clock();
-        this.raycaster = new THREE.Raycaster();
-        this.mouse = new THREE.Vector2();
-
+        this.canvas = document.getElementById('game-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        
         this.player = null;
-        this.targetPosition = new THREE.Vector3();
+        this.targetPosition = { x: 0, y: 0 };
         this.collectibles = new Map();
         
-        this.animatedTextures = []; // Array of { texture, canvas, context, image }
-        
+        this.gifCache = new Map();
+        this.gifSourcesContainer = document.getElementById('gif-sources');
+
         this.chunks = new Map();
         this.characterPool = [...GIF_ASSETS];
         
+        this.camera = { x: 0, y: 0 };
+        this.lastTime = 0;
+
         this.init();
     }
 
-    init() {
-        // Renderer setup
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        document.body.appendChild(this.renderer.domElement);
-
-        // Scene and Camera setup
-        this.scene.background = new THREE.Color(0x87ceeb);
-        this.scene.fog = new THREE.Fog(0x87ceeb, CHUNK_SIZE * 1.5, CHUNK_SIZE * (RENDER_DISTANCE + 0.5));
-        this.camera.position.set(10, 15, 10);
-        this.camera.lookAt(0, 0, 0);
-
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        this.scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(10, 20, 5);
-        this.scene.add(directionalLight);
-
-        // Player
-        this.createPlayer();
-
-        // Controls
+    async init() {
+        this.onWindowResize();
         window.addEventListener('resize', this.onWindowResize.bind(this));
-        this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown.bind(this));
+        this.canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
 
+        await this.preloadGifs();
+        this.createPlayer();
+        
         this.updateChunks();
-        this.animate();
+        requestAnimationFrame(this.animate.bind(this));
     }
 
-    createAnimatedTexture(assetPath) {
-        return new Promise((resolve) => {
-            const image = new Image();
-            image.crossOrigin = 'anonymous';
-            image.onload = () => {
-                const holder = document.getElementById('gif-sources');
-                holder && holder.appendChild(image); // keep GIF in DOM so it animates
-                const canvas = document.createElement('canvas');
-                canvas.width = image.width; canvas.height = image.height;
-                const context = canvas.getContext('2d');
-                const texture = new THREE.CanvasTexture(canvas);
-                texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter;
-                this.animatedTextures.push({ texture, canvas, context, image });
-                resolve(texture);
+    preloadGifs() {
+        const promises = GIF_ASSETS.map(src => this.loadGif(src));
+        return Promise.all(promises);
+    }
+
+    loadGif(src) {
+        return new Promise((resolve, reject) => {
+            if (this.gifCache.has(src)) {
+                return resolve(this.gifCache.get(src));
+            }
+            const img = new Image();
+            img.onload = () => {
+                this.gifSourcesContainer.appendChild(img);
+                this.gifCache.set(src, img);
+                resolve(img);
             };
-            image.src = assetPath;
+            img.onerror = () => reject(`Failed to load GIF: ${src}`);
+            img.src = src;
         });
     }
 
-    async createPlayer() {
+    createPlayer() {
         const randomIndex = Math.floor(Math.random() * this.characterPool.length);
         const playerAsset = this.characterPool.splice(randomIndex, 1)[0];
-
-        const texture = await this.createAnimatedTexture(playerAsset);
-        const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-        this.player = new THREE.Sprite(material);
-        this.player.scale.set(2, 2, 1);
-        this.player.position.y = 1;
-        this.targetPosition.copy(this.player.position);
-        this.scene.add(this.player);
+        
+        this.player = {
+            x: 0,
+            y: 0,
+            assetPath: playerAsset,
+            img: this.gifCache.get(playerAsset)
+        };
+        this.targetPosition.x = this.player.x;
+        this.targetPosition.y = this.player.y;
     }
-    
+
     getChunkCoords(position) {
         return {
-            x: Math.floor((position.x + CHUNK_SIZE / 2) / CHUNK_SIZE),
-            z: Math.floor((position.z + CHUNK_SIZE / 2) / CHUNK_SIZE)
+            x: Math.floor(position.x / CHUNK_SIZE),
+            y: Math.floor(position.y / CHUNK_SIZE)
         };
     }
 
     updateChunks() {
         if (!this.player) return;
-        const currentChunkCoords = this.getChunkCoords(this.player.position);
+        const currentChunkCoords = this.getChunkCoords(this.player);
         const chunksToKeep = new Set();
 
         for (let x = currentChunkCoords.x - RENDER_DISTANCE; x <= currentChunkCoords.x + RENDER_DISTANCE; x++) {
-            for (let z = currentChunkCoords.z - RENDER_DISTANCE; z <= currentChunkCoords.z + RENDER_DISTANCE; z++) {
-                const key = `${x},${z}`;
+            for (let y = currentChunkCoords.y - RENDER_DISTANCE; y <= currentChunkCoords.y + RENDER_DISTANCE; y++) {
+                const key = `${x},${y}`;
                 chunksToKeep.add(key);
                 if (!this.chunks.has(key)) {
-                    this.loadChunk(x, z);
+                    this.loadChunk(x, y);
                 }
             }
         }
         
-        for (const [key, chunk] of this.chunks.entries()) {
+        for (const key of this.chunks.keys()) {
             if (!chunksToKeep.has(key)) {
-                this.unloadChunk(key, chunk);
+                this.unloadChunk(key);
             }
         }
     }
-    
-    async loadChunk(x, z) {
-        const geometry = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
-        const material = new THREE.MeshLambertMaterial({ color: 0x4caf50 });
-        const chunk = new THREE.Mesh(geometry, material);
-        chunk.rotation.x = -Math.PI / 2;
-        chunk.position.set(x * CHUNK_SIZE, 0, z * CHUNK_SIZE);
-        this.scene.add(chunk);
-        this.chunks.set(`${x},${z}`, chunk);
-        
-        // Spawn collectibles
+
+    loadChunk(x, y) {
         if (this.characterPool.length > 0 && Math.random() > 0.3) {
             const charAsset = this.characterPool.pop();
-            const texture = await this.createAnimatedTexture(charAsset);
-            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-            const collectible = new THREE.Sprite(material);
-            collectible.scale.set(2, 2, 1);
-            
-            const pos_x = (x * CHUNK_SIZE) + (Math.random() - 0.5) * CHUNK_SIZE;
-            const pos_z = (z * CHUNK_SIZE) + (Math.random() - 0.5) * CHUNK_SIZE;
-            collectible.position.set(pos_x, 1, pos_z);
-            collectible.userData.assetPath = charAsset;
-            
-            this.scene.add(collectible);
+            const collectible = {
+                x: (x + Math.random()) * CHUNK_SIZE,
+                y: (y + Math.random()) * CHUNK_SIZE,
+                assetPath: charAsset,
+                img: this.gifCache.get(charAsset)
+            };
             this.collectibles.set(charAsset, collectible);
         }
+        this.chunks.set(`${x},${y}`, {});
     }
     
-    unloadChunk(key, chunk) {
-        this.scene.remove(chunk);
-        chunk.geometry.dispose();
-        chunk.material.dispose();
+    unloadChunk(key) {
+        // For simplicity, we'll leave collectibles that are out of range.
+        // They will be garbage collected if the user never returns.
         this.chunks.delete(key);
     }
 
     onWindowResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
     }
 
     onPointerDown(event) {
-        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        const rect = this.canvas.getBoundingClientRect();
+        const screenX = event.clientX - rect.left;
+        const screenY = event.clientY - rect.top;
 
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        const intersectPoint = new THREE.Vector3();
-        this.raycaster.ray.intersectPlane(groundPlane, intersectPoint);
-        
-        if (intersectPoint) {
-            this.targetPosition.copy(intersectPoint);
-            this.targetPosition.y = 1;
-        }
+        // Convert screen coordinates to world coordinates
+        this.targetPosition.x = screenX - this.canvas.width / 2 + this.camera.x;
+        this.targetPosition.y = screenY - this.canvas.height / 2 + this.camera.y;
     }
 
-    update() {
-        const delta = this.clock.getDelta();
-        
+    update(deltaTime) {
         if (!this.player) return;
         
-        const distance = this.player.position.distanceTo(this.targetPosition);
+        // Move player
+        const dx = this.targetPosition.x - this.player.x;
+        const dy = this.targetPosition.y - this.player.y;
+        const distance = Math.hypot(dx, dy);
 
-        if (distance > 0.1) {
-            const direction = new THREE.Vector3().subVectors(this.targetPosition, this.player.position).normalize();
-            this.player.position.add(direction.multiplyScalar(PLAYER_SPEED * delta));
+        if (distance > 1) {
+            const moveSpeed = PLAYER_SPEED * deltaTime;
+            this.player.x += (dx / distance) * Math.min(moveSpeed, distance);
+            this.player.y += (dy / distance) * Math.min(moveSpeed, distance);
         }
 
-        // Camera follows player
-        this.camera.position.x = this.player.position.x + 10;
-        this.camera.position.z = this.player.position.z + 10;
-        this.camera.lookAt(this.player.position);
+        // Camera smoothly follows player
+        const cameraSpeed = 5 * deltaTime;
+        this.camera.x += (this.player.x - this.camera.x) * cameraSpeed;
+        this.camera.y += (this.player.y - this.camera.y) * cameraSpeed;
         
         this.updateChunks();
         this.checkCollectibles();
-        this.updateAnimatedTextures();
-    }
-    
-    updateAnimatedTextures() {
-        for (const animData of this.animatedTextures) {
-            const { context, canvas, image, texture } = animData;
-            context.clearRect(0, 0, canvas.width, canvas.height);
-            context.drawImage(image, 0, 0, canvas.width, canvas.height);
-            texture.needsUpdate = true;
-        }
     }
     
     checkCollectibles() {
         const collectedKeys = [];
         for (const [key, collectible] of this.collectibles.entries()) {
-            if (this.player.position.distanceTo(collectible.position) < COLLECT_DISTANCE) {
-                this.scene.remove(collectible);
-                
-                // Remove texture from animated textures list and dispose
-                const texture = collectible.material.map;
-                const textureIndex = this.animatedTextures.findIndex(anim => anim.texture === texture);
-                if (textureIndex > -1) {
-                    this.animatedTextures.splice(textureIndex, 1);
-                }
-                texture.dispose();
+            const distance = Math.hypot(this.player.x - collectible.x, this.player.y - collectible.y);
 
-                collectible.material.dispose();
+            if (distance < COLLECT_DISTANCE) {
                 collectedKeys.push(key);
                 this.showUnlockMessage();
             }
@@ -239,6 +186,8 @@ class Game {
 
     showUnlockMessage() {
         const msgElement = document.getElementById('unlock-message');
+        if (msgElement.classList.contains('visible')) return;
+
         msgElement.classList.remove('hidden');
         msgElement.classList.add('visible');
         setTimeout(() => {
@@ -246,12 +195,40 @@ class Game {
             msgElement.classList.add('hidden');
         }, 3000);
     }
+    
+    draw() {
+        this.ctx.fillStyle = '#4caf50';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    animate() {
+        this.ctx.save();
+        this.ctx.translate(this.canvas.width / 2 - this.camera.x, this.canvas.height / 2 - this.camera.y);
+
+        const objectsToDraw = [this.player, ...this.collectibles.values()].filter(Boolean);
+        objectsToDraw.sort((a, b) => a.y - b.y);
+
+        objectsToDraw.forEach(obj => {
+            if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
+                 this.ctx.drawImage(
+                    obj.img,
+                    obj.x - SPRITE_SIZE / 2,
+                    obj.y - SPRITE_SIZE,
+                    SPRITE_SIZE,
+                    SPRITE_SIZE
+                );
+            }
+        });
+        
+        this.ctx.restore();
+    }
+
+    animate(timestamp) {
+        const deltaTime = (timestamp - this.lastTime) / 1000 || 0;
+        this.lastTime = timestamp;
+
+        this.update(deltaTime);
+        this.draw();
+        
         requestAnimationFrame(this.animate.bind(this));
-
-        this.update();
-        this.renderer.render(this.scene, this.camera);
     }
 }
 
