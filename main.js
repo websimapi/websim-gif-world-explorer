@@ -225,10 +225,12 @@ class Game {
     animate() {
         requestAnimationFrame(this.animate.bind(this));
 
-        // Setting needsUpdate is not needed for textures loaded by TextureLoader for gifs.
-        // The loader sets the 'needsUpdate' flag internally when the gif frame changes.
-        // It relies on THREE.ImageUtils.getDataURL( image ) which seems to be deprecated or internal.
-        // The modern way this works is that TextureLoader sets up an update mechanism.
+        // For animated GIFs to work, we need to tell Three.js to update
+        // the texture on each frame. Setting `needsUpdate = true` forces
+        // the renderer to re-read the texture from the underlying GIF image source.
+        for (const texture of this.animatedTextures) {
+            texture.needsUpdate = true;
+        }
 
         this.update();
         this.renderer.render(this.scene, this.camera);
