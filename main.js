@@ -1,3 +1,5 @@
+import gifler from 'gifler';
+
 const GIF_ASSETS = [
     '/asset_33 (2).gif', '/asset_24 (2).gif', '/asset_8.gif', '/asset_31.gif', '/asset_42.gif',
     '/asset_35 (1).gif', '/asset_0.gif', '/asset_22 (2).gif', '/asset_13 (1).gif', '/asset_25 (1).gif',
@@ -25,8 +27,7 @@ class Game {
         this.targetPosition = { x: 0, y: 0 };
         this.collectibles = new Map();
         
-        this.gifCache = new Map();
-        this.gifSourcesContainer = document.getElementById('gif-sources');
+        this.gifRenderers = new Map();
 
         this.chunks = new Map();
         this.characterPool = [...GIF_ASSETS];
@@ -50,24 +51,43 @@ class Game {
     }
 
     preloadGifs() {
-        const promises = GIF_ASSETS.map(src => this.loadGif(src));
+        const promises = GIF_ASSETS.map(src => this.createGifRenderer(src));
         return Promise.all(promises);
     }
 
-    loadGif(src) {
-        return new Promise((resolve, reject) => {
-            if (this.gifCache.has(src)) {
-                return resolve(this.gifCache.get(src));
-            }
-            const img = new Image();
-            img.onload = () => {
-                this.gifSourcesContainer.appendChild(img);
-                this.gifCache.set(src, img);
-                resolve(img);
-            };
-            img.onerror = () => reject(`Failed to load GIF: ${src}`);
-            img.src = src;
+    createGifRenderer(src) {
+        if (this.gifRenderers.has(src)) {
+            return Promise.resolve(this.gifRenderers.get(src));
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = SPRITE_SIZE;
+        canvas.height = SPRITE_SIZE;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        // Let's get the original GIF dimensions to scale it correctly
+        const tempImg = new Image();
+        const dimensionPromise = new Promise((resolve) => {
+            tempImg.onload = () => resolve({ width: tempImg.naturalWidth, height: tempImg.naturalHeight });
+            tempImg.src = src;
         });
+
+        dimensionPromise.then(({ width, height }) => {
+            const animator = gifler(src).frames(canvas, (frameCtx, frame) => {
+                // Calculate aspect ratio to fit into SPRITE_SIZE square
+                const ratio = Math.min(SPRITE_SIZE / width, SPRITE_SIZE / height);
+                const drawWidth = width * ratio;
+                const drawHeight = height * ratio;
+                const offsetX = (SPRITE_SIZE - drawWidth) / 2;
+                const offsetY = (SPRITE_SIZE - drawHeight) / 2;
+
+                frameCtx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+                frameCtx.drawImage(frame.buffer, offsetX, offsetY, drawWidth, drawHeight);
+            });
+        });
+        
+        this.gifRenderers.set(src, canvas);
+        return dimensionPromise;
     }
 
     createPlayer() {
@@ -78,7 +98,7 @@ class Game {
             x: 0,
             y: 0,
             assetPath: playerAsset,
-            img: this.gifCache.get(playerAsset)
+            renderer: this.gifRenderers.get(playerAsset)
         };
         this.targetPosition.x = this.player.x;
         this.targetPosition.y = this.player.y;
@@ -120,7 +140,7 @@ class Game {
                 x: (x + Math.random()) * CHUNK_SIZE,
                 y: (y + Math.random()) * CHUNK_SIZE,
                 assetPath: charAsset,
-                img: this.gifCache.get(charAsset)
+                renderer: this.gifRenderers.get(charAsset)
             };
             this.collectibles.set(charAsset, collectible);
         }
@@ -207,9 +227,9 @@ class Game {
         objectsToDraw.sort((a, b) => a.y - b.y);
 
         objectsToDraw.forEach(obj => {
-            if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
+            if (obj.renderer) {
                  this.ctx.drawImage(
-                    obj.img,
+                    obj.renderer,
                     obj.x - SPRITE_SIZE / 2,
                     obj.y - SPRITE_SIZE,
                     SPRITE_SIZE,
