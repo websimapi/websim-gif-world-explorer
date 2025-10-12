@@ -30,9 +30,7 @@ class Game {
         this.targetPosition = new THREE.Vector3();
         this.collectibles = new Map();
         
-        this.animatedTextures = []; // To keep track of textures that need updating for GIF animation
-        
-        this.textureLoader = new THREE.TextureLoader();
+        this.animatedTextures = []; // Array of { texture, canvas, context, image }
         
         this.chunks = new Map();
         this.characterPool = [...GIF_ASSETS];
@@ -71,16 +69,36 @@ class Game {
     }
 
     createAnimatedTexture(assetPath) {
-        const texture = this.textureLoader.load(assetPath);
-        this.animatedTextures.push(texture);
-        return texture;
+        return new Promise((resolve) => {
+            const image = new Image();
+            image.crossOrigin = 'anonymous';
+            
+            image.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext('2d');
+                
+                context.drawImage(image, 0, 0);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                
+                this.animatedTextures.push({ texture, canvas, context, image });
+                
+                resolve(texture);
+            };
+            
+            image.src = assetPath;
+        });
     }
 
-    createPlayer() {
+    async createPlayer() {
         const randomIndex = Math.floor(Math.random() * this.characterPool.length);
         const playerAsset = this.characterPool.splice(randomIndex, 1)[0];
 
-        const texture = this.createAnimatedTexture(playerAsset);
+        const texture = await this.createAnimatedTexture(playerAsset);
         const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
         this.player = new THREE.Sprite(material);
         this.player.scale.set(2, 2, 1);
@@ -97,6 +115,7 @@ class Game {
     }
 
     updateChunks() {
+        if (!this.player) return;
         const currentChunkCoords = this.getChunkCoords(this.player.position);
         const chunksToKeep = new Set();
 
@@ -117,7 +136,7 @@ class Game {
         }
     }
     
-    loadChunk(x, z) {
+    async loadChunk(x, z) {
         const geometry = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
         const material = new THREE.MeshLambertMaterial({ color: 0x4caf50 });
         const chunk = new THREE.Mesh(geometry, material);
@@ -129,7 +148,7 @@ class Game {
         // Spawn collectibles
         if (this.characterPool.length > 0 && Math.random() > 0.3) {
             const charAsset = this.characterPool.pop();
-            const texture = this.createAnimatedTexture(charAsset);
+            const texture = await this.createAnimatedTexture(charAsset);
             const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
             const collectible = new THREE.Sprite(material);
             collectible.scale.set(2, 2, 1);
@@ -174,6 +193,9 @@ class Game {
 
     update() {
         const delta = this.clock.getDelta();
+        
+        if (!this.player) return;
+        
         const distance = this.player.position.distanceTo(this.targetPosition);
 
         if (distance > 0.1) {
@@ -188,6 +210,15 @@ class Game {
         
         this.updateChunks();
         this.checkCollectibles();
+        this.updateAnimatedTextures();
+    }
+    
+    updateAnimatedTextures() {
+        for (const animData of this.animatedTextures) {
+            animData.context.clearRect(0, 0, animData.canvas.width, animData.canvas.height);
+            animData.context.drawImage(animData.image, 0, 0);
+            animData.texture.needsUpdate = true;
+        }
     }
     
     checkCollectibles() {
@@ -198,7 +229,7 @@ class Game {
                 
                 // Remove texture from animated textures list and dispose
                 const texture = collectible.material.map;
-                const textureIndex = this.animatedTextures.indexOf(texture);
+                const textureIndex = this.animatedTextures.findIndex(anim => anim.texture === texture);
                 if (textureIndex > -1) {
                     this.animatedTextures.splice(textureIndex, 1);
                 }
@@ -224,13 +255,6 @@ class Game {
 
     animate() {
         requestAnimationFrame(this.animate.bind(this));
-
-        // For animated GIFs to work, we need to tell Three.js to update
-        // the texture on each frame. Setting `needsUpdate = true` forces
-        // the renderer to re-read the texture from the underlying GIF image source.
-        for (const texture of this.animatedTextures) {
-            texture.needsUpdate = true;
-        }
 
         this.update();
         this.renderer.render(this.scene, this.camera);
