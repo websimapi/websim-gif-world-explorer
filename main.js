@@ -30,6 +30,8 @@ class Game {
         this.targetPosition = new THREE.Vector3();
         this.collectibles = new Map();
         
+        this.animatedTextures = []; // To keep track of textures that need updating for GIF animation
+        
         this.chunks = new Map();
         this.characterPool = [...GIF_ASSETS];
         
@@ -66,11 +68,22 @@ class Game {
         this.animate();
     }
 
+    createAnimatedTexture(assetPath) {
+        const image = new Image();
+        const texture = new THREE.Texture(image);
+        image.onload = () => {
+            texture.needsUpdate = true;
+        };
+        image.src = assetPath;
+        this.animatedTextures.push(texture);
+        return texture;
+    }
+
     createPlayer() {
         const randomIndex = Math.floor(Math.random() * this.characterPool.length);
         const playerAsset = this.characterPool.splice(randomIndex, 1)[0];
 
-        const texture = new THREE.TextureLoader().load(playerAsset);
+        const texture = this.createAnimatedTexture(playerAsset);
         const material = new THREE.SpriteMaterial({ map: texture });
         this.player = new THREE.Sprite(material);
         this.player.scale.set(2, 2, 1);
@@ -119,7 +132,7 @@ class Game {
         // Spawn collectibles
         if (this.characterPool.length > 0 && Math.random() > 0.3) {
             const charAsset = this.characterPool.pop();
-            const texture = new THREE.TextureLoader().load(charAsset);
+            const texture = this.createAnimatedTexture(charAsset);
             const material = new THREE.SpriteMaterial({ map: texture });
             const collectible = new THREE.Sprite(material);
             collectible.scale.set(2, 2, 1);
@@ -185,7 +198,15 @@ class Game {
         for (const [key, collectible] of this.collectibles.entries()) {
             if (this.player.position.distanceTo(collectible.position) < COLLECT_DISTANCE) {
                 this.scene.remove(collectible);
-                collectible.material.map.dispose();
+                
+                // Remove texture from animated textures list and dispose
+                const texture = collectible.material.map;
+                const textureIndex = this.animatedTextures.indexOf(texture);
+                if (textureIndex > -1) {
+                    this.animatedTextures.splice(textureIndex, 1);
+                }
+                texture.dispose();
+
                 collectible.material.dispose();
                 collectedKeys.push(key);
                 this.showUnlockMessage();
@@ -206,10 +227,14 @@ class Game {
 
     animate() {
         requestAnimationFrame(this.animate.bind(this));
+
+        for (const texture of this.animatedTextures) {
+            texture.needsUpdate = true;
+        }
+
         this.update();
         this.renderer.render(this.scene, this.camera);
     }
 }
 
 new Game();
-
