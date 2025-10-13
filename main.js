@@ -250,39 +250,52 @@ class Game {
     }
 
     createGifRenderer(src) {
-        if (this.gifRenderers.has(src)) {
-            return Promise.resolve(this.gifRenderers.get(src));
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        
-        const tempImg = new Image();
-        const dimensionPromise = new Promise((resolve) => {
-            tempImg.onload = () => resolve({ width: tempImg.naturalWidth, height: tempImg.naturalHeight });
-            tempImg.src = src;
-        });
-
-        dimensionPromise.then(({ width, height }) => {
-            gifler(src).frames(canvas, (frameCtx, frame) => {
-                const ratio = Math.min(canvas.width / width, canvas.height / height);
-                const drawWidth = width * ratio;
-                const drawHeight = height * ratio;
-                const offsetX = (canvas.width - drawWidth) / 2;
-                const offsetY = (canvas.height - drawHeight) / 2;
-
-                frameCtx.clearRect(0, 0, canvas.width, canvas.height);
-                frameCtx.drawImage(frame.buffer, offsetX, offsetY, drawWidth, drawHeight);
-                
-                if (this.textures.has(src)) {
-                    this.textures.get(src).needsUpdate = true;
+        return new Promise((resolve, reject) => {
+            if (this.gifRenderers.has(src)) {
+                resolve(this.gifRenderers.get(src));
+                return;
+            }
+    
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            this.gifRenderers.set(src, canvas);
+            
+            gifler(src).get(player => {
+                if (!player) {
+                    console.error("Could not load gifler player for:", src);
+                    reject(new Error("Could not load gifler player for: " + src));
+                    return;
                 }
+                const firstFrame = player.frames[0];
+                if (!firstFrame) {
+                    console.error("Could not get first frame for:", src);
+                    reject(new Error("Could not get first frame for: " + src));
+                    return;
+                }
+                const width = firstFrame.width;
+                const height = firstFrame.height;
+
+                player.frames(canvas, (frameCtx, frame) => {
+                    const ratio = Math.min(canvas.width / width, canvas.height / height);
+                    const drawWidth = width * ratio;
+                    const drawHeight = height * ratio;
+                    const offsetX = (canvas.width - drawWidth) / 2;
+                    const offsetY = (canvas.height - drawHeight) / 2;
+
+                    frameCtx.clearRect(0, 0, canvas.width, canvas.height);
+                    frameCtx.drawImage(frame.buffer, offsetX, offsetY, drawWidth, drawHeight);
+                    
+                    if (this.textures.has(src)) {
+                        this.textures.get(src).needsUpdate = true;
+                    }
+                });
+                resolve(canvas);
+            }).catch(err => {
+                 console.error(`Error loading/processing GIF: ${src}`, err);
+                 reject(err);
             });
         });
-        
-        this.gifRenderers.set(src, canvas);
-        return dimensionPromise;
     }
 
     createPlayer() {
