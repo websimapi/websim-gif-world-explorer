@@ -28,6 +28,7 @@ class Game {
         this.characterSelectScreen = document.getElementById('character-select-screen');
         this.closeCharacterSelectBtn = document.getElementById('close-character-select-btn');
         this.characterGrid = document.getElementById('character-grid');
+        this.characterGridItems = new Map(); // To hold UI elements for easy update
 
         // 3D Renderer state
         this.renderer = null;
@@ -44,6 +45,7 @@ class Game {
         this.gifRenderers = new Map();
 
         this.chunks = new Map();
+        this.unlockedCharacters = new Set();
         this.characterPool = [...GIF_ASSETS];
         
         this.lastTime = 0;
@@ -56,7 +58,7 @@ class Game {
         this.canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
 
         await this.preloadGifs();
-        this.setupCharacterSelection();
+        this.initCharacterSelection();
         this.createPlayer();
         
         this.setup3D();
@@ -65,7 +67,7 @@ class Game {
         requestAnimationFrame(this.animate.bind(this));
     }
 
-    setupCharacterSelection() {
+    initCharacterSelection() {
         this.characterSelectBtn.addEventListener('click', () => {
             this.characterSelectScreen.classList.remove('hidden');
         });
@@ -75,22 +77,34 @@ class Game {
 
         GIF_ASSETS.forEach(assetPath => {
             const item = document.createElement('div');
-            item.className = 'character-item';
+            item.className = 'character-item locked';
             item.style.backgroundImage = `url(${assetPath})`;
             item.dataset.assetPath = assetPath;
 
             item.addEventListener('click', () => {
-                this.changePlayerCharacter(assetPath);
-                this.characterSelectScreen.classList.add('hidden');
+                if (this.unlockedCharacters.has(assetPath)) {
+                    this.changePlayerCharacter(assetPath);
+                    this.characterSelectScreen.classList.add('hidden');
+                }
             });
             this.characterGrid.appendChild(item);
+            this.characterGridItems.set(assetPath, item);
+        });
+    }
+
+    updateCharacterSelectionUI() {
+        this.characterGridItems.forEach((item, assetPath) => {
+            if (this.unlockedCharacters.has(assetPath)) {
+                item.classList.remove('locked');
+            } else {
+                item.classList.add('locked');
+            }
         });
     }
 
     updateSelectedCharacterUI(assetPath) {
-        const items = this.characterGrid.querySelectorAll('.character-item');
-        items.forEach(item => {
-            if(item.dataset.assetPath === assetPath) {
+        this.characterGridItems.forEach((item, path) => {
+            if (path === assetPath) {
                 item.classList.add('selected');
             } else {
                 item.classList.remove('selected');
@@ -286,6 +300,9 @@ class Game {
         };
         this.targetPosition.x = this.player.x;
         this.targetPosition.y = this.player.y;
+
+        this.unlockedCharacters.add(playerAsset);
+        this.updateCharacterSelectionUI();
         this.updateSelectedCharacterUI(playerAsset);
     }
 
@@ -400,7 +417,8 @@ class Game {
 
             if (distance < COLLECT_DISTANCE) {
                 collectedKeys.push(key);
-                this.characterPool.push(collectible.assetPath); // Add back to pool
+                this.unlockedCharacters.add(collectible.assetPath);
+                this.updateCharacterSelectionUI();
                 this.showUnlockMessage();
             }
         }

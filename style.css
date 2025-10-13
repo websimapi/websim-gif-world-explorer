@@ -152,6 +152,16 @@ h1, p {
     border-color: #ffd700;
 }
 
+.character-item.locked {
+    filter: grayscale(100%) brightness(0.5);
+    cursor: not-allowed;
+}
+
+.character-item.locked:hover {
+    transform: none;
+    border-color: transparent;
+}
+
 .character-item.selected {
     border-color: #4caf50;
     box-shadow: 0 0 10px #4caf50;
