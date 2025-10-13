@@ -20,10 +20,14 @@
     </div>
     <div id="ui-container">
         <div id="info">
-            <h1>GIF World Explorer</h1>
-            <p>Click or Tap to move. Find other characters!</p>
             <div id="unlock-message" class="hidden">You've discovered a new character!</div>
         </div>
+        <button id="character-select-btn">Characters</button>
+    </div>
+    <div id="character-select-screen" class="hidden">
+        <h2>Select a Character</h2>
+        <div id="character-grid"></div>
+        <button id="close-character-select-btn">Close</button>
     </div>
     <div id="gif-sources" aria-hidden="true"></div>
     <script src="https://unpkg.com/gifler@0.1.0/gifler.min.js"></script>

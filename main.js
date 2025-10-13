@@ -23,6 +23,12 @@ class Game {
         this.canvas = document.getElementById('game-canvas');
         this.gameContainer = document.getElementById('game-container');
         
+        // UI Elements
+        this.characterSelectBtn = document.getElementById('character-select-btn');
+        this.characterSelectScreen = document.getElementById('character-select-screen');
+        this.closeCharacterSelectBtn = document.getElementById('close-character-select-btn');
+        this.characterGrid = document.getElementById('character-grid');
+
         // 3D Renderer state
         this.renderer = null;
         this.scene = null;
@@ -50,12 +56,77 @@ class Game {
         this.canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
 
         await this.preloadGifs();
+        this.setupCharacterSelection();
         this.createPlayer();
         
         this.setup3D();
 
         this.updateChunks();
         requestAnimationFrame(this.animate.bind(this));
+    }
+
+    setupCharacterSelection() {
+        this.characterSelectBtn.addEventListener('click', () => {
+            this.characterSelectScreen.classList.remove('hidden');
+        });
+        this.closeCharacterSelectBtn.addEventListener('click', () => {
+            this.characterSelectScreen.classList.add('hidden');
+        });
+
+        GIF_ASSETS.forEach(assetPath => {
+            const item = document.createElement('div');
+            item.className = 'character-item';
+            item.style.backgroundImage = `url(${assetPath})`;
+            item.dataset.assetPath = assetPath;
+
+            item.addEventListener('click', () => {
+                this.changePlayerCharacter(assetPath);
+                this.characterSelectScreen.classList.add('hidden');
+            });
+            this.characterGrid.appendChild(item);
+        });
+    }
+
+    updateSelectedCharacterUI(assetPath) {
+        const items = this.characterGrid.querySelectorAll('.character-item');
+        items.forEach(item => {
+            if(item.dataset.assetPath === assetPath) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+    }
+    
+    changePlayerCharacter(newAssetPath) {
+        if (!this.player || this.player.assetPath === newAssetPath) return;
+
+        const oldAssetPath = this.player.assetPath;
+
+        // Update player object
+        this.player.assetPath = newAssetPath;
+        this.player.renderer = this.gifRenderers.get(newAssetPath);
+
+        // Update collectible pool
+        if (!this.characterPool.includes(oldAssetPath)) {
+            this.characterPool.push(oldAssetPath);
+        }
+        const newAssetIndex = this.characterPool.indexOf(newAssetPath);
+        if (newAssetIndex > -1) {
+            this.characterPool.splice(newAssetIndex, 1);
+        }
+
+        // Update 3D sprite's texture
+        const playerSprite = this.sprites.get(this.player);
+        if (playerSprite) {
+            const newTexture = this.textures.get(newAssetPath);
+            if (newTexture) {
+                playerSprite.material.map = newTexture;
+                playerSprite.material.needsUpdate = true;
+            }
+        }
+        
+        this.updateSelectedCharacterUI(newAssetPath);
     }
 
     setup3D() {
@@ -201,8 +272,11 @@ class Game {
     }
 
     createPlayer() {
-        const randomIndex = Math.floor(Math.random() * this.characterPool.length);
-        const playerAsset = this.characterPool.splice(randomIndex, 1)[0];
+        const playerAsset = GIF_ASSETS[0]; // Start with the first character
+        const playerAssetIndex = this.characterPool.indexOf(playerAsset);
+        if (playerAssetIndex > -1) {
+            this.characterPool.splice(playerAssetIndex, 1);
+        }
         
         this.player = {
             x: 0,
@@ -212,6 +286,7 @@ class Game {
         };
         this.targetPosition.x = this.player.x;
         this.targetPosition.y = this.player.y;
+        this.updateSelectedCharacterUI(playerAsset);
     }
 
     getChunkCoords(position) {
@@ -245,7 +320,8 @@ class Game {
 
     loadChunk(x, y) {
         if (this.characterPool.length > 0 && Math.random() > 0.3) {
-            const charAsset = this.characterPool.pop();
+            const randomIndex = Math.floor(Math.random() * this.characterPool.length);
+            const charAsset = this.characterPool.splice(randomIndex, 1)[0];
             const collectible = {
                 x: (x + Math.random()) * CHUNK_SIZE,
                 y: (y + Math.random()) * CHUNK_SIZE,
@@ -324,6 +400,7 @@ class Game {
 
             if (distance < COLLECT_DISTANCE) {
                 collectedKeys.push(key);
+                this.characterPool.push(collectible.assetPath); // Add back to pool
                 this.showUnlockMessage();
             }
         }
