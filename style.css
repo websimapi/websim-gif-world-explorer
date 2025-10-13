@@ -68,6 +68,7 @@ p {
     cursor: pointer;
     pointer-events: all; /* Make button clickable */
     z-index: 101;
+    display: none; /* Reverting to 3D only */
 }
 
 #unlock-message {

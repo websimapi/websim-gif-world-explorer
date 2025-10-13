@@ -20,25 +20,16 @@ const SPRITE_SIZE = 100; // pixels
 
 class Game {
     constructor() {
-        this.canvas2d = document.getElementById('game-canvas-2d');
-        this.canvas3d = document.getElementById('game-canvas-3d');
+        this.canvas = document.getElementById('game-canvas');
         this.gameContainer = document.getElementById('game-container');
-        this.toggleButton = document.getElementById('view-toggle');
-        
-        this.viewMode = '2d'; // '2d' or '3d'
-        
-        // 2D Renderer state
-        this.ctx = null;
         
         // 3D Renderer state
-        this.three = {
-            renderer: null,
-            scene: null,
-            camera: null,
-            sprites: new Map(),
-            textures: new Map(),
-            ground: null,
-        };
+        this.renderer = null;
+        this.scene = null;
+        this.camera = null;
+        this.sprites = new Map();
+        this.textures = new Map();
+        this.ground = null;
 
         this.player = null;
         this.targetPosition = { x: 0, y: 0 };
@@ -49,93 +40,63 @@ class Game {
         this.chunks = new Map();
         this.characterPool = [...GIF_ASSETS];
         
-        this.camera = { x: 0, y: 0 };
         this.lastTime = 0;
 
         this.init();
     }
 
     async init() {
-        this.toggleButton.addEventListener('click', this.toggleView.bind(this));
-        
         window.addEventListener('resize', this.onWindowResize.bind(this));
-        // Add listeners to both canvases
-        this.canvas2d.addEventListener('pointerdown', this.onPointerDown.bind(this));
-        this.canvas3d.addEventListener('pointerdown', this.onPointerDown.bind(this));
+        this.canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
 
         await this.preloadGifs();
         this.createPlayer();
         
-        this.setup2D();
-        this.setup3D(); // Set up both renderers at the start
+        this.setup3D();
 
         this.updateChunks();
         requestAnimationFrame(this.animate.bind(this));
     }
 
-    toggleView() {
-        if (this.viewMode === '2d') {
-            this.viewMode = '3d';
-            this.toggleButton.textContent = 'Switch to 2D View';
-            this.canvas2d.classList.add('hidden');
-            this.canvas3d.classList.remove('hidden');
-        } else {
-            this.viewMode = '2d';
-            this.toggleButton.textContent = 'Switch to 3D View';
-            this.canvas3d.classList.add('hidden');
-            this.canvas2d.classList.remove('hidden');
-        }
-        this.onWindowResize(); // Ensure the visible canvas is sized correctly
-    }
-
-    setup2D() {
-        this.ctx = this.canvas2d.getContext('2d');
-        this.onWindowResize();
-    }
-
-    teardown2D() {
-        // No longer needed to tear anything down
-        this.ctx = null;
-    }
-
     setup3D() {
         // Renderer
         try {
-            this.three.renderer = new THREE.WebGLRenderer({ canvas: this.canvas3d, antialias: true, alpha: true });
+            this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
         } catch (e) {
             console.error("Error creating WebGL context:", e);
-            // If 3D fails to initialize, hide the toggle button and stick to 2D
-            this.toggleButton.style.display = 'none';
-            this.viewMode = '2d'; 
-            this.canvas3d.classList.add('hidden');
-            this.canvas2d.classList.remove('hidden');
+            // If 3D fails, we can't do much in a 3D-only setup
+            const errorDiv = document.createElement('div');
+            errorDiv.style.color = 'white';
+            errorDiv.style.textAlign = 'center';
+            errorDiv.style.padding = '20px';
+            errorDiv.innerHTML = "<h2>Could not initialize 3D graphics (WebGL).</h2><p>Please try a different browser or check if your graphics drivers are up to date.</p>";
+            this.gameContainer.innerHTML = '';
+            this.gameContainer.appendChild(errorDiv);
             return;
         }
 
-        this.three.renderer.setPixelRatio(window.devicePixelRatio);
-        this.three.renderer.setSize(this.gameContainer.clientWidth, this.gameContainer.clientHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(this.gameContainer.clientWidth, this.gameContainer.clientHeight);
 
         // Scene
-        this.three.scene = new THREE.Scene();
-        this.three.scene.background = new THREE.Color(0x87ceeb);
-        // Adjust fog to be less dense
-        this.three.scene.fog = new THREE.Fog(0x87ceeb, CHUNK_SIZE, CHUNK_SIZE * (RENDER_DISTANCE + 1.5));
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x87ceeb);
+        this.scene.fog = new THREE.Fog(0x87ceeb, CHUNK_SIZE, CHUNK_SIZE * (RENDER_DISTANCE + 1.5));
 
         // Camera
-        this.three.camera = new THREE.PerspectiveCamera(75, this.gameContainer.clientWidth / this.gameContainer.clientHeight, 0.1, 5000);
+        this.camera = new THREE.PerspectiveCamera(75, this.gameContainer.clientWidth / this.gameContainer.clientHeight, 0.1, 5000);
         
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        this.three.scene.add(ambientLight);
+        this.scene.add(ambientLight);
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(-1, 1.75, 1);
-        this.three.scene.add(directionalLight);
+        this.scene.add(directionalLight);
         
         // Ground
         const groundSize = CHUNK_SIZE * (RENDER_DISTANCE * 2 + 1);
         const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
         
-        // Create a texture with a grid pattern for the ground
         const gridCanvas = document.createElement('canvas');
         const gridContext = gridCanvas.getContext('2d');
         const canvasSize = 256;
@@ -158,51 +119,44 @@ class Game {
 
         const groundMaterial = new THREE.MeshLambertMaterial({ map: groundTexture });
         
-        this.three.ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        this.three.ground.rotation.x = -Math.PI / 2;
-        this.three.scene.add(this.three.ground);
+        this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        this.ground.rotation.x = -Math.PI / 2;
+        this.scene.add(this.ground);
 
-        // Create 3D representations for existing objects that might exist before this is called
-        if (this.player) this.add3dSprite(this.player);
+        // Create 3D representations for existing objects
+        this.add3dSprite(this.player);
         this.collectibles.forEach(c => this.add3dSprite(c));
         
         // Initialize camera position
-        if(this.player) {
-            this.three.camera.position.set(this.player.x, 500, this.player.y + 500);
-            this.three.camera.lookAt(this.player.x, 0, this.player.y);
-        }
+        this.camera.position.set(this.player.x, 400, this.player.y + 300);
+        this.camera.lookAt(this.player.x, 0, this.player.y);
         
         this.onWindowResize();
     }
     
     add3dSprite(obj) {
-        if (!this.gifRenderers.has(obj.assetPath) || !this.three.scene) return;
+        if (!this.gifRenderers.has(obj.assetPath) || !this.scene) return;
 
         const canvas = this.gifRenderers.get(obj.assetPath);
         const texture = new THREE.CanvasTexture(canvas);
-        this.three.textures.set(obj.assetPath, texture);
+        this.textures.set(obj.assetPath, texture);
 
         const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
         const sprite = new THREE.Sprite(material);
         sprite.scale.set(SPRITE_SIZE, SPRITE_SIZE, 1);
         
-        this.three.sprites.set(obj, sprite);
-        this.three.scene.add(sprite);
+        this.sprites.set(obj, sprite);
+        this.scene.add(sprite);
     }
     
     remove3dSprite(obj) {
-        if (this.three.sprites.has(obj)) {
-            const sprite = this.three.sprites.get(obj);
-            this.three.scene.remove(sprite);
+        if (this.sprites.has(obj)) {
+            const sprite = this.sprites.get(obj);
+            this.scene.remove(sprite);
             sprite.material.map.dispose();
             sprite.material.dispose();
-            this.three.sprites.delete(obj);
-            // Do not dispose texture, it might be shared by other sprites of the same type
+            this.sprites.delete(obj);
         }
-    }
-
-    teardown3D() {
-        // No longer needed
     }
 
     preloadGifs() {
@@ -216,10 +170,8 @@ class Game {
         }
 
         const canvas = document.createElement('canvas');
-        // Setting a higher base resolution for better quality in 3D
         canvas.width = 128;
         canvas.height = 128;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         
         const tempImg = new Image();
         const dimensionPromise = new Promise((resolve) => {
@@ -238,9 +190,8 @@ class Game {
                 frameCtx.clearRect(0, 0, canvas.width, canvas.height);
                 frameCtx.drawImage(frame.buffer, offsetX, offsetY, drawWidth, drawHeight);
                 
-                // If in 3D mode, mark texture for update
-                if (this.viewMode === '3d' && this.three.textures.has(src)) {
-                    this.three.textures.get(src).needsUpdate = true;
+                if (this.textures.has(src)) {
+                    this.textures.get(src).needsUpdate = true;
                 }
             });
         });
@@ -261,8 +212,6 @@ class Game {
         };
         this.targetPosition.x = this.player.x;
         this.targetPosition.y = this.player.y;
-        // The 3D sprite will be created in setup3D
-        this.add3dSprite(this.player);
     }
 
     getChunkCoords(position) {
@@ -304,9 +253,7 @@ class Game {
                 renderer: this.gifRenderers.get(charAsset)
             };
             this.collectibles.set(charAsset, collectible);
-            if (this.viewMode === '3d') {
-                this.add3dSprite(collectible);
-            }
+            this.add3dSprite(collectible);
         }
         this.chunks.set(`${x},${y}`, {});
     }
@@ -321,15 +268,13 @@ class Game {
         const width = this.gameContainer.clientWidth;
         const height = this.gameContainer.clientHeight;
         
-        this.canvas2d.width = width;
-        this.canvas2d.height = height;
-        this.canvas3d.width = width;
-        this.canvas3d.height = height;
+        this.canvas.width = width;
+        this.canvas.height = height;
 
-        if (this.three.renderer) {
-            this.three.camera.aspect = width / height;
-            this.three.camera.updateProjectionMatrix();
-            this.three.renderer.setSize(width, height);
+        if (this.renderer) {
+            this.camera.aspect = width / height;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(width, height);
         }
     }
 
@@ -338,19 +283,15 @@ class Game {
         const screenX = event.clientX - rect.left;
         const screenY = event.clientY - rect.top;
 
-        if (this.viewMode === '2d') {
-            // Convert screen coordinates to world coordinates
-            this.targetPosition.x = screenX - this.canvas2d.width / 2 + this.camera.x;
-            this.targetPosition.y = screenY - this.canvas2d.height / 2 + this.camera.y;
-        } else if (this.viewMode === '3d' && this.three.renderer) {
+        if (this.renderer) {
             // Raycasting to find point on ground plane
             const mouse = new THREE.Vector2(
-                (screenX / this.canvas3d.clientWidth) * 2 - 1,
-                -(screenY / this.canvas3d.clientHeight) * 2 + 1
+                (screenX / this.canvas.clientWidth) * 2 - 1,
+                -(screenY / this.canvas.clientHeight) * 2 + 1
             );
             const raycaster = new THREE.Raycaster();
-            raycaster.setFromCamera(mouse, this.three.camera);
-            const intersects = raycaster.intersectObject(this.three.ground);
+            raycaster.setFromCamera(mouse, this.camera);
+            const intersects = raycaster.intersectObject(this.ground);
             if (intersects.length > 0) {
                 this.targetPosition.x = intersects[0].point.x;
                 this.targetPosition.y = intersects[0].point.z;
@@ -371,11 +312,6 @@ class Game {
             this.player.x += (dx / distance) * Math.min(moveSpeed, distance);
             this.player.y += (dy / distance) * Math.min(moveSpeed, distance);
         }
-
-        // Camera smoothly follows player
-        const cameraSpeed = 5 * deltaTime;
-        this.camera.x += (this.player.x - this.camera.x) * cameraSpeed;
-        this.camera.y += (this.player.y - this.camera.y) * cameraSpeed;
         
         this.updateChunks();
         this.checkCollectibles();
@@ -413,75 +349,36 @@ class Game {
     }
     
     draw() {
-        if (this.viewMode === '2d') {
-            this.draw2D();
-        } else {
-            this.draw3D();
-        }
-    }
-
-    draw2D() {
-        if (!this.ctx) return;
-        this.ctx.fillStyle = '#4caf50';
-        this.ctx.fillRect(0, 0, this.canvas2d.width, this.canvas2d.height);
-
-        this.ctx.save();
-        this.ctx.translate(this.canvas2d.width / 2 - this.camera.x, this.canvas2d.height / 2 - this.camera.y);
-
-        const objectsToDraw = [this.player, ...this.collectibles.values()].filter(Boolean);
-        objectsToDraw.sort((a, b) => a.y - b.y);
-
-        objectsToDraw.forEach(obj => {
-            if (obj.renderer) {
-                 this.ctx.drawImage(
-                    obj.renderer,
-                    obj.x - SPRITE_SIZE / 2,
-                    obj.y - SPRITE_SIZE, // draw from top-left of sprite box
-                    SPRITE_SIZE,
-                    SPRITE_SIZE
-                );
-            }
-        });
-        
-        this.ctx.restore();
-    }
-
-    draw3D() {
-        if (!this.three.renderer || !this.player) return;
+        if (!this.renderer || !this.player) return;
 
         // Update sprite positions
-        this.three.sprites.forEach((sprite, obj) => {
+        this.sprites.forEach((sprite, obj) => {
             sprite.position.set(obj.x, SPRITE_SIZE / 2, obj.y);
         });
         
         // Update ground position to align with world chunks
         const playerChunkCoords = this.getChunkCoords(this.player);
-        const groundCenterX = (playerChunkCoords.x + 0.5) * CHUNK_SIZE;
-        const groundCenterZ = (playerChunkCoords.y + 0.5) * CHUNK_SIZE;
-        this.three.ground.position.set(groundCenterX, 0, groundCenterZ);
+        const groundCenterX = (playerChunkCoords.x) * CHUNK_SIZE;
+        const groundCenterZ = (playerChunkCoords.y) * CHUNK_SIZE;
+        this.ground.position.set(groundCenterX, 0, groundCenterZ);
 
-        // Update camera
-        const camDist = 500;
+        // Update camera to follow player
+        const camDistY = 400;
+        const camDistZ = 300;
         const cameraLerpFactor = 0.05;
 
-        // More stable camera follow logic
-        this.three.camera.position.x += (this.player.x - this.three.camera.position.x) * cameraLerpFactor;
-        this.three.camera.position.y += (camDist - this.three.camera.position.y) * cameraLerpFactor;
-        this.three.camera.position.z += ((this.player.y + camDist) - this.three.camera.position.z) * cameraLerpFactor;
+        const targetCamPos = new THREE.Vector3(this.player.x, camDistY, this.player.y + camDistZ);
+        this.camera.position.lerp(targetCamPos, cameraLerpFactor);
         
-        // The target to look at also moves smoothly towards the player's position
-        const lookAtTarget = new THREE.Vector3();
-        this.three.camera.getWorldDirection(lookAtTarget); // get current look direction
-        lookAtTarget.multiplyScalar(camDist).add(this.three.camera.position); // find current look at point
-        
-        // lerp the look at point towards the player
-        lookAtTarget.x += (this.player.x - lookAtTarget.x) * cameraLerpFactor;
-        lookAtTarget.y += (0 - lookAtTarget.y) * cameraLerpFactor; // Player's head is at y=0-ish
-        lookAtTarget.z += (this.player.y - lookAtTarget.z) * cameraLerpFactor;
+        const targetLookAt = new THREE.Vector3(this.player.x, 0, this.player.y);
+        // We can't just lerp the lookAt. We create a temporary lookAt target and lerp towards it.
+        const currentLookAt = new THREE.Vector3();
+        this.camera.getWorldDirection(currentLookAt);
+        currentLookAt.multiplyScalar(100).add(this.camera.position); // Get current focal point
+        currentLookAt.lerp(targetLookAt, cameraLerpFactor);
+        this.camera.lookAt(currentLookAt);
 
-        this.three.camera.lookAt(lookAtTarget);
-
-        this.three.renderer.render(this.three.scene, this.three.camera);
+        this.renderer.render(this.scene, this.camera);
     }
 
     animate(timestamp) {
