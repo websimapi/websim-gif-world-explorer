@@ -261,40 +261,44 @@ class Game {
             canvas.height = 128;
             this.gifRenderers.set(src, canvas);
             
-            gifler(src).get(player => {
-                if (!player) {
-                    console.error("Could not load gifler player for:", src);
-                    reject(new Error("Could not load gifler player for: " + src));
-                    return;
-                }
-                const firstFrame = player.frames[0];
-                if (!firstFrame) {
-                    console.error("Could not get first frame for:", src);
-                    reject(new Error("Could not get first frame for: " + src));
-                    return;
-                }
-                const width = firstFrame.width;
-                const height = firstFrame.height;
-
-                player.frames(canvas, (frameCtx, frame) => {
-                    const ratio = Math.min(canvas.width / width, canvas.height / height);
-                    const drawWidth = width * ratio;
-                    const drawHeight = height * ratio;
-                    const offsetX = (canvas.width - drawWidth) / 2;
-                    const offsetY = (canvas.height - drawHeight) / 2;
-
-                    frameCtx.clearRect(0, 0, canvas.width, canvas.height);
-                    frameCtx.drawImage(frame.buffer, offsetX, offsetY, drawWidth, drawHeight);
-                    
-                    if (this.textures.has(src)) {
-                        this.textures.get(src).needsUpdate = true;
+            try {
+                gifler(src).get(player => {
+                    if (!player || !player.frames || player.frames.length === 0) {
+                        console.error("Could not load gifler player or frames for:", src);
+                        reject(new Error("Could not load gifler player for: " + src));
+                        return;
                     }
+
+                    const firstFrame = player.frames[0];
+                    const width = firstFrame.width;
+                    const height = firstFrame.height;
+
+                    if (!width || !height) {
+                        console.error("Invalid frame dimensions for:", src);
+                        reject(new Error("Invalid frame dimensions for: " + src));
+                        return;
+                    }
+
+                    player.frames(canvas, (frameCtx, frame) => {
+                        const ratio = Math.min(canvas.width / width, canvas.height / height);
+                        const drawWidth = width * ratio;
+                        const drawHeight = height * ratio;
+                        const offsetX = (canvas.width - drawWidth) / 2;
+                        const offsetY = (canvas.height - drawHeight) / 2;
+
+                        frameCtx.clearRect(0, 0, canvas.width, canvas.height);
+                        frameCtx.drawImage(frame.buffer, offsetX, offsetY, drawWidth, drawHeight);
+                        
+                        if (this.textures.has(src)) {
+                            this.textures.get(src).needsUpdate = true;
+                        }
+                    });
+                    resolve(canvas);
                 });
-                resolve(canvas);
-            }).catch(err => {
+            } catch (err) {
                  console.error(`Error loading/processing GIF: ${src}`, err);
                  reject(err);
-            });
+            }
         });
     }
 
