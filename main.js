@@ -166,6 +166,12 @@ class Game {
         if (this.player) this.add3dSprite(this.player);
         this.collectibles.forEach(c => this.add3dSprite(c));
         
+        // Initialize camera position
+        if(this.player) {
+            this.three.camera.position.set(this.player.x, 500, this.player.y + 500);
+            this.three.camera.lookAt(this.player.x, 0, this.player.y);
+        }
+        
         this.onWindowResize();
     }
     
@@ -196,18 +202,7 @@ class Game {
     }
 
     teardown3D() {
-        // No longer needed as we are not destroying the renderer
-        // Kept for historical reference, but should not be called.
-        if (this.three.renderer) {
-            this.three.renderer.dispose();
-            this.three.renderer = null;
-        }
-        this.three.scene = null;
-        this.three.camera = null;
-        this.three.ground = null;
-        this.three.sprites.clear();
-        this.three.textures.forEach(t => t.dispose());
-        this.three.textures.clear();
+        // No longer needed
     }
 
     preloadGifs() {
@@ -441,7 +436,7 @@ class Game {
                  this.ctx.drawImage(
                     obj.renderer,
                     obj.x - SPRITE_SIZE / 2,
-                    obj.y - SPRITE_SIZE,
+                    obj.y - SPRITE_SIZE, // draw from top-left of sprite box
                     SPRITE_SIZE,
                     SPRITE_SIZE
                 );
@@ -467,10 +462,24 @@ class Game {
 
         // Update camera
         const camDist = 500;
-        this.three.camera.position.x += (this.player.x - this.three.camera.position.x) * 0.1;
-        this.three.camera.position.z += (this.player.y + camDist - this.three.camera.position.z) * 0.1;
-        this.three.camera.position.y += (camDist - this.three.camera.position.y) * 0.1;
-        this.three.camera.lookAt(this.player.x, 0, this.player.y);
+        const cameraLerpFactor = 0.05;
+
+        // More stable camera follow logic
+        this.three.camera.position.x += (this.player.x - this.three.camera.position.x) * cameraLerpFactor;
+        this.three.camera.position.y += (camDist - this.three.camera.position.y) * cameraLerpFactor;
+        this.three.camera.position.z += ((this.player.y + camDist) - this.three.camera.position.z) * cameraLerpFactor;
+        
+        // The target to look at also moves smoothly towards the player's position
+        const lookAtTarget = new THREE.Vector3();
+        this.three.camera.getWorldDirection(lookAtTarget); // get current look direction
+        lookAtTarget.multiplyScalar(camDist).add(this.three.camera.position); // find current look at point
+        
+        // lerp the look at point towards the player
+        lookAtTarget.x += (this.player.x - lookAtTarget.x) * cameraLerpFactor;
+        lookAtTarget.y += (0 - lookAtTarget.y) * cameraLerpFactor; // Player's head is at y=0-ish
+        lookAtTarget.z += (this.player.y - lookAtTarget.z) * cameraLerpFactor;
+
+        this.three.camera.lookAt(lookAtTarget);
 
         this.three.renderer.render(this.three.scene, this.three.camera);
     }
